@@ -24,6 +24,7 @@ DEFAULT_FIELDS = {
         "roles": "出镜角色",
         "style": "风格备注",
         "enabled": "启用",
+        "table": "数据表名称",
     },
     "masters": {
         "title": "选题",
@@ -34,9 +35,9 @@ DEFAULT_FIELDS = {
         "stores": "适用门店",
         "status": "状态",
     },
+    # 每家门店自己的那一页（数据表），字段名默认与你们现有页面一致
     "videos": {
-        "title": "标题",
-        "store": "门店",
+        "title": "文本",
         "master": "母版",
         "date": "日期",
         "script": "脚本内容",
@@ -44,6 +45,7 @@ DEFAULT_FIELDS = {
         "cover": "封面标题",
         "subtitle": "副标题",
         "highlights": "高亮词",
+        "reference": "对标视频",
         "prompt": "即梦AI提示词",
         "generated": "生成视频",
         "final": "成片",
@@ -53,6 +55,10 @@ DEFAULT_FIELDS = {
         "note": "备注",
     },
 }
+
+# 这两页是总部用的，其余和「门店资料」里对得上的页面都当作门店页
+STORES_TABLE = "门店资料"
+MASTERS_TABLE = "母版"
 
 STATUS = {
     "pending_dist": "待分发",

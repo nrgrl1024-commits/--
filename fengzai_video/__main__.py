@@ -17,7 +17,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", help="配置文件路径，默认 ./config.yaml")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("setup", help="在飞书多维表格里新建 门店资料 / 母版 / 每日视频 三张表")
+    sub.add_parser("setup", help="建「门店资料」「母版」两页，并给各门店页补齐字段（可反复运行）")
+    ad = sub.add_parser("add-store", help="新开一家门店：新建它的页面并加入门店资料")
+    ad.add_argument("name", help="门店名称，同时作为页面名")
+    ad.add_argument("--city", default="")
     sub.add_parser("distribute", help="把状态为「待分发」的母版分发给各门店")
     sub.add_parser("rewrite", help="AI 改写所有「待改写」的行")
     sub.add_parser("edit", help="给已上传即梦视频的行自动剪辑并回写成片")
@@ -73,14 +76,18 @@ def main(argv: list[str] | None = None) -> int:
     from .feishu import Feishu
     from .pipeline import Pipeline
 
-    if args.cmd == "setup":
-        from .setup_tables import create_tables
+    if args.cmd in ("setup", "add-store"):
+        from . import setup_tables
 
         fs = Feishu(cfg.feishu.get("app_id"), cfg.feishu.get("app_secret"), cfg.feishu.get("app_token"))
-        ids = create_tables(cfg, fs)
-        print("建表完成，把下面三行填进 config.yaml 的 feishu.tables：")
-        for k, v in ids.items():
-            print(f"    {k}: {v}")
+        if args.cmd == "add-store":
+            setup_tables.add_store(cfg, fs, args.name, args.city)
+            print(f"已新建门店页「{args.name}」，并加入门店资料")
+            return 0
+        report = setup_tables.setup(cfg, fs)
+        print(f"检查了 {len(report)} 家门店的页面：")
+        for page, added in report.items():
+            print(f"  {page}：" + (f"新增字段 {'、'.join(added)}" if added else "字段齐全"))
         return 0
 
     pipe = Pipeline(cfg)

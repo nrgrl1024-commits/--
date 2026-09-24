@@ -82,7 +82,30 @@ class Feishu:
     def update_record(self, table_id: str, record_id: str, fields: dict) -> None:
         self.request("PUT", f"{self._records_path(table_id)}/{record_id}", json={"fields": fields})
 
-    # ---------- 建表 ----------
+    # ---------- 数据表 / 字段 ----------
+    def list_tables(self) -> dict[str, str]:
+        """返回 {数据表名称: table_id}，即多维表格左侧的每一页。"""
+        tables, page_token = {}, None
+        while True:
+            params = {"page_size": 100}
+            if page_token:
+                params["page_token"] = page_token
+            data = self.request("GET", f"/bitable/v1/apps/{self.app_token}/tables", params=params)
+            for t in data.get("items") or []:
+                tables[t["name"]] = t["table_id"]
+            if not data.get("has_more"):
+                return tables
+            page_token = data.get("page_token")
+
+    def list_fields(self, table_id: str) -> set[str]:
+        data = self.request(
+            "GET", f"/bitable/v1/apps/{self.app_token}/tables/{table_id}/fields", params={"page_size": 100}
+        )
+        return {f["field_name"] for f in data.get("items") or []}
+
+    def create_field(self, table_id: str, field: dict) -> None:
+        self.request("POST", f"/bitable/v1/apps/{self.app_token}/tables/{table_id}/fields", json=field)
+
     def create_table(self, name: str, fields: list[dict]) -> str:
         data = self.request(
             "POST",

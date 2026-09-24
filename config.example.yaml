@@ -5,11 +5,7 @@ feishu:
   app_secret: ${FEISHU_APP_SECRET}
   # 多维表格链接 https://xxx.feishu.cn/base/<这一段就是 app_token>?table=...
   app_token: ${FEISHU_APP_TOKEN}
-  # 运行 python -m fengzai_video setup 后，把输出的三个 table_id 填到这里
-  tables:
-    stores: ""
-    masters: ""
-    videos: ""
+  # 不用填 table_id：系统按页面名称找「门店资料」「母版」和各门店自己的页面
 
 llm:
   # 默认用火山方舟（豆包）。换 DeepSeek：base_url 改为 https://api.deepseek.com/v1，model 改为 deepseek-chat
