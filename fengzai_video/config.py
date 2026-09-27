@@ -44,7 +44,7 @@ DEFAULT_FIELDS = {
         "title": "文本",
         "master": "母版",
         "date": "日期",
-        "script": "脚本内容",
+        "script": "对标脚本内容",
         "rewritten": "改写脚本内容",
         "cover": "封面标题",
         "subtitle": "副标题",

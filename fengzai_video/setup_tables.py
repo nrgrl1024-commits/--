@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from .config import HQ_TABLES, MASTERS_TABLE, STATUS, STORES_TABLE, TASKS_TABLE, Config
 from .feishu import Feishu, text_of
@@ -97,9 +98,46 @@ def ensure_base(cfg: Config, fs: Feishu) -> dict[str, str]:
         )
         pages = [n for n in tables if n not in HQ_TABLES]
         if pages:
-            fs.batch_create(tables[STORES_TABLE], [{S["name"]: n, S["enabled"]: True} for n in pages])
-        log.info("已创建「%s」页，并按现有 %d 个页面预填了门店，请补充城市、即梦主播等信息", STORES_TABLE, len(pages))
+            fs.batch_create(tables[STORES_TABLE], [prefill_store(cfg, n) for n in pages])
+        log.info("已创建「%s」页，并按现有 %d 个页面预填了门店，请核对城市，补充即梦主播等信息", STORES_TABLE, len(pages))
     return tables
+
+
+PROVINCES = (
+    "黑龙江", "内蒙古", "北京", "天津", "上海", "重庆", "河北", "山西", "辽宁", "吉林", "江苏", "浙江", "安徽",
+    "福建", "江西", "山东", "河南", "湖北", "湖南", "广东", "广西", "海南", "四川", "贵州", "云南", "西藏",
+    "陕西", "甘肃", "青海", "宁夏", "新疆",
+)  # fmt: skip
+
+
+def parse_page_name(page: str) -> dict:
+    """从「1安徽合肥大铺头(男)」这样的页面名里拆出门店名、城市、主播性别（城市是猜的，需要人工核对）。"""
+    name = re.sub(r"^\s*\d+[.、\s]*", "", page)
+    gender = ""
+    m = re.search(r"[（(]\s*([男女])\s*[)）]", name)
+    if m:
+        gender = m.group(1)
+        name = (name[: m.start()] + name[m.end() :]).strip()
+    rest = name
+    for prov in PROVINCES:
+        if rest.startswith(prov):
+            rest = rest[len(prov) :].lstrip("省市")
+            break
+    idx = rest.find("市", 0, 5)
+    city, district = (rest[:idx], rest[idx + 1 :]) if idx > 0 else (rest[:2], rest[2:])
+    return {"name": name or page, "city": city, "district": district, "gender": gender}
+
+
+def prefill_store(cfg: Config, page: str) -> dict:
+    S = cfg.fields["stores"]
+    info = parse_page_name(page)
+    row = {
+        S["name"]: info["name"], S["table"]: page, S["city"]: info["city"],
+        S["district"]: info["district"], S["enabled"]: True,
+    }  # fmt: skip
+    if info["gender"]:
+        row[S["roles"]] = f"门店主播为{info['gender']}性"
+    return row
 
 
 def ensure_store_page(cfg: Config, fs: Feishu, tables: dict[str, str], page: str) -> list[str]:
