@@ -89,3 +89,44 @@ def test_feishu_retries_when_rate_limited(monkeypatch):
     monkeypatch.setattr(fs, "token", lambda: "t")
     assert fs.request("GET", "/x") == {"ok": 1}
     assert replies == []
+
+
+def test_download_resumes_after_connection_drop(tmp_path, monkeypatch):
+    import requests as rq
+
+    from fengzai_video import feishu
+
+    payload = b"x" * 3000
+    calls = []
+
+    class Resp:
+        def __init__(self, status, body, headers, fail_after=None):
+            self.status_code, self._body, self.headers, self._fail = status, body, headers, fail_after
+            self.text = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_content(self, n):
+            if self._fail is not None:
+                yield self._body[: self._fail]
+                raise rq.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead")
+            yield self._body
+
+    def fake_get(url, headers, stream, timeout):
+        calls.append(headers.get("Range"))
+        if len(calls) == 1:
+            return Resp(200, payload, {"Content-Length": "3000"}, fail_after=1000)
+        start = int(headers["Range"].split("=")[1].rstrip("-"))
+        return Resp(206, payload[start:], {"Content-Range": f"bytes {start}-2999/3000"})
+
+    monkeypatch.setattr(feishu.requests, "get", fake_get)
+    monkeypatch.setattr(feishu.time, "sleep", lambda s: None)
+    fs = feishu.Feishu("id", "secret", "app")
+    monkeypatch.setattr(fs, "token", lambda: "t")
+    out = fs.download({"file_token": "f"}, tmp_path / "v.mp4")
+    assert out.read_bytes() == payload
+    assert calls == [None, "bytes=1000-"]

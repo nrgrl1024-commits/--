@@ -11,6 +11,7 @@ BASE = "https://open.feishu.cn/open-apis"
 SMALL_UPLOAD_LIMIT = 20 * 1024 * 1024  # 超过 20MB 走分片上传
 RATE_LIMIT_CODES = {99991400, 1254290}  # 飞书"请求过于频繁"
 RETRIES = 5
+DOWNLOAD_RETRIES = 6
 
 
 class FeishuError(RuntimeError):
@@ -127,15 +128,41 @@ class Feishu:
 
     # ---------- 附件 ----------
     def download(self, attachment: dict, dest: Path) -> Path:
+        """下载附件。网络中途断开时自动重试，并尽量从断开的位置接着下载。"""
         url = attachment.get("url") or f"{BASE}/drive/v1/medias/{attachment['file_token']}/download"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        with requests.get(url, headers={"Authorization": f"Bearer {self.token()}"}, stream=True, timeout=300) as r:
-            if r.status_code != 200:
-                raise FeishuError(f"下载附件失败 HTTP {r.status_code}：{r.text[:200]}")
-            with open(dest, "wb") as f:
-                for chunk in r.iter_content(1 << 20):
-                    f.write(chunk)
-        return dest
+        dest.unlink(missing_ok=True)
+        total = None
+        last_err: Exception | None = None
+        for attempt in range(DOWNLOAD_RETRIES + 1):
+            done = dest.stat().st_size if dest.exists() else 0
+            if total is not None and done >= total:
+                return dest
+            headers = {"Authorization": f"Bearer {self.token()}"}
+            if done:
+                headers["Range"] = f"bytes={done}-"
+            try:
+                with requests.get(url, headers=headers, stream=True, timeout=(15, 120)) as r:
+                    if r.status_code not in (200, 206):
+                        raise FeishuError(f"下载附件失败 HTTP {r.status_code}：{r.text[:200]}")
+                    if r.status_code == 200:  # 服务器不支持续传，从头下载
+                        done = 0
+                        total = int(r.headers["Content-Length"]) if r.headers.get("Content-Length") else None
+                    elif total is None and "/" in r.headers.get("Content-Range", ""):
+                        size = r.headers["Content-Range"].rsplit("/", 1)[1]
+                        total = int(size) if size.isdigit() else None
+                    with open(dest, "ab" if done else "wb") as f:
+                        for chunk in r.iter_content(1 << 20):
+                            f.write(chunk)
+                if total is None or dest.stat().st_size >= total:
+                    return dest
+                last_err = FeishuError(f"只下载了 {dest.stat().st_size}/{total} 字节")
+            except FeishuError:
+                raise
+            except requests.RequestException as e:
+                last_err = e
+            time.sleep(min(2 ** attempt, 30))
+        raise FeishuError(f"下载附件多次中断，请检查网络：{last_err}")
 
     def upload(self, path: Path, parent_type: str = "bitable_file") -> str:
         """上传到本多维表格，返回 file_token，可直接写入附件字段。"""
