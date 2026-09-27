@@ -17,6 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", help="配置文件路径，默认 ./config.yaml")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    sub.add_parser("check", help="检查飞书、豆包、剪辑工具的配置是否正确")
     sub.add_parser("setup", help="建「门店资料」「母版」「今日任务」三页，并给各门店页补齐字段（可反复运行）")
     sub.add_parser("distribute", help="把状态为「待分发」的母版分发给各门店")
     sub.add_parser("rewrite", help="AI 改写所有「待改写」的行")
@@ -85,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from .feishu import Feishu
     from .pipeline import Pipeline
+
+    if args.cmd == "check":
+        from .check import run_checks
+
+        return 0 if run_checks(cfg) else 1
 
     if args.cmd == "setup":
         from . import setup_tables

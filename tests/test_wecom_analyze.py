@@ -68,3 +68,18 @@ def test_shrink_for_upload(tmp_path):
     assert editor.shrink_for_upload(src, 50) == src  # 不超就原样
     small = editor.shrink_for_upload(src, 0.05)
     assert small != src and small.exists()
+
+
+def test_access_key_rejected_with_clear_hint():
+    with pytest.raises(llm.LLMError, match="API Key 管理"):
+        llm.chat({"api_key": "AKLTxxxx", "model": "doubao"}, "s", "u")
+
+
+def test_401_explains_where_to_get_key(monkeypatch):
+    class R:
+        status_code = 401
+        text = '{"error":{"code":"AuthenticationError"}}'
+
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **k: R())
+    with pytest.raises(llm.LLMError, match="API Key 管理"):
+        llm.chat({"api_key": "bad", "model": "doubao"}, "s", "u")

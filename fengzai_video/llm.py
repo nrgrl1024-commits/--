@@ -13,17 +13,24 @@ class LLMError(RuntimeError):
     pass
 
 
+KEY_HINT = "豆包 API Key 不对：请到火山方舟控制台左侧「API Key 管理」复制 Key，填到 .env 的 ARK_API_KEY（不是 AKLT 开头的 Access Key）"
+
+
 def complete(llm_cfg: dict, messages: list[dict], temperature: float = 0.9, model: str | None = None) -> str:
     base_url = (llm_cfg.get("base_url") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
     api_key, model = llm_cfg.get("api_key"), model or llm_cfg.get("model")
     if not (api_key and model):
         raise LLMError("缺少大模型配置：llm.api_key / llm.model")
+    if api_key.startswith("AKLT"):
+        raise LLMError(KEY_HINT + "（现在填的是 AKLT 开头的 Access Key）")
     resp = requests.post(
         f"{base_url}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model, "temperature": temperature, "messages": messages},
         timeout=int(llm_cfg.get("timeout", 300)),
     )
+    if resp.status_code == 401:
+        raise LLMError(f"{KEY_HINT}。原始报错：{resp.text[:200]}")
     if resp.status_code != 200:
         raise LLMError(f"大模型调用失败 HTTP {resp.status_code}：{resp.text[:300]}")
     return resp.json()["choices"][0]["message"]["content"]
