@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+config.yaml
+work/
+out/
+assets/fonts/*
+!assets/fonts/README.md
+assets/music/*
+!assets/music/README.md

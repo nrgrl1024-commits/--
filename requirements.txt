@@ -1,0 +1,6 @@
+requests>=2.28
+PyYAML>=6.0
+jieba>=0.42          # 字幕断句时按词语切分
+fonttools>=4.40      # 读取字体尺寸，让标题字号更准
+imageio-ffmpeg>=0.4  # 服务器没装 ffmpeg 时自带一个
+pytest>=7

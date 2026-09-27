@@ -1,0 +1,39 @@
+# 复制为 config.yaml 后填写。密钥建议放在 .env 里，这里用 ${变量名} 引用。
+
+feishu:
+  app_id: ${FEISHU_APP_ID}
+  app_secret: ${FEISHU_APP_SECRET}
+  # 多维表格链接 https://xxx.feishu.cn/base/<这一段就是 app_token>?table=...
+  app_token: ${FEISHU_APP_TOKEN}
+  # 不用填 table_id：系统按页面名称找「门店资料」「母版」「今日任务」和各门店自己的页面
+
+llm:
+  # 默认用火山方舟（豆包）。换 DeepSeek：base_url 改为 https://api.deepseek.com/v1，model 改为 deepseek-chat
+  base_url: https://ark.cn-beijing.volces.com/api/v3
+  api_key: ${ARK_API_KEY}
+  # 填火山方舟控制台里的模型名或推理接入点 ID（ep-xxxx）
+  model: ${ARK_MODEL}
+  # 识别对标视频用的模型，要能看图片；不填就用上面的 model
+  vision_model: ""
+  vision_max_frames: 16        # 从对标视频里截多少张画面给模型看
+
+render:
+  # 把买好授权 / 可免费商用的字体文件放进 assets/fonts，然后在这里写字体名称（不是文件名）
+  title_font: "WenQuanYi Zen Hei"
+  caption_font: "WenQuanYi Zen Hei"
+  music_dir: assets/music      # 放几首固定的背景音乐，系统按视频自动轮换
+  bgm_volume: 0.12             # 背景音乐音量，0.1~0.2 不会压住人声
+  disclaimer: "视频内容仅供参考，具体以实物效果为准~"
+  ai_label: "内容由AI生成"      # 按国家规定，AI 生成视频需要显著标识，不建议去掉
+  output_width: 1080
+  crf: 18                      # 画质，越小越清晰、文件越大，16~20 都合适
+  caption_max_chars: 9         # 每条字幕最多几个字
+  wecom_max_mb: 19             # 发企微群的视频超过这个大小会自动压缩
+  title_color: "#FFE100"
+  highlight_color: "#FFE100"
+
+# 如果你们表格里的字段名跟默认的不一样，可以在这里改，例如：
+# fields:
+#   videos:
+#     rewritten: 改写脚本内容
+#     prompt: 即梦AI提示词
