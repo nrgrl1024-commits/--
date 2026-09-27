@@ -93,7 +93,18 @@
 4. 在模型详情页复制 Model ID（如 `doubao-seed-xxx`），或者在「在线推理」里创建接入点，得到 `ep-xxx`
 
 ### 3. 安装运行
-需要 Python 3.10 或更高版本，普通云服务器就够（2 核 4G 起）。
+
+**推荐：一键安装。** 买一台国内云服务器，阿里云或腾讯云的「轻量应用服务器」就行：2 核 4G，系统选 Ubuntu 22.04。把项目代码放到服务器上，进入项目目录后运行：
+
+```bash
+sudo bash deploy/install.sh
+```
+
+脚本会自动完成：安装 ffmpeg 和中文字体 → 安装依赖 → 逐个提示你填写飞书和豆包的密钥 → 初始化飞书表格 → 设为开机自动运行。中途出错时，改正后重新运行即可。
+
+装好后，查看运行日志：`journalctl -u fengzai-video -f`
+
+**手动安装**（需要 Python 3.10 或更高版本）：
 
 ```bash
 pip install -r requirements.txt
