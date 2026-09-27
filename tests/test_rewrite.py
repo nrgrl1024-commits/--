@@ -59,3 +59,14 @@ def test_feishu_value_helpers():
     assert attachments([{"file_token": "t", "name": "a.mp4"}, {"name": "no token"}]) == [
         {"file_token": "t", "name": "a.mp4"}
     ]
+
+
+def test_config_accepts_bom_files(tmp_path, monkeypatch):
+    """Windows 记事本保存的文件开头带 BOM，也要能正常读取。"""
+    from fengzai_video import config
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_bytes("﻿feishu:\n  app_token: ${FT_TEST}\nwork_dir: work\n".encode("utf-8"))
+    monkeypatch.setenv("FT_TEST", "abc")
+    cfg = config.load_config(cfg_file)
+    assert cfg.feishu["app_token"] == "abc"

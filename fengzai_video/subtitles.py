@@ -175,7 +175,12 @@ def em_ratio(family: str, fonts_dir: str = "") -> float:
         from fontTools.ttLib import TTCollection, TTFont
 
         files = [p for p in Path(fonts_dir).glob("*") if p.suffix.lower() in {".ttf", ".otf", ".ttc"}] if fonts_dir else []
-        matched = subprocess.run(["fc-match", "-f", "%{file}", family], capture_output=True, text=True).stdout
+        try:
+            matched = subprocess.run(
+                ["fc-match", "-f", "%{file}", family], capture_output=True, text=True, encoding="utf-8", errors="replace"
+            ).stdout
+        except OSError:  # Windows 上没有 fc-match
+            matched = ""
         if matched:
             files.append(Path(matched))
         for path in files:

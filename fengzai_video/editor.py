@@ -26,7 +26,7 @@ def ffmpeg_exe() -> str:
 
 
 def _run(args: list[str], cwd: Path | None = None) -> str:
-    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", *args], cwd=cwd, capture_output=True, text=True)
+    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg 失败：{proc.stderr[-1500:]}")
     return proc.stderr
@@ -41,7 +41,7 @@ class Probe:
 
 
 def probe(path: Path) -> Probe:
-    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True)
+    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     info = proc.stderr
     dur = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", info)
     size = re.search(r"Stream #.*Video:.*?, (\d{2,5})x(\d{2,5})", info)

@@ -55,3 +55,24 @@ def test_build_ass_contains_layers():
     assert "Title,,0,0,0,,珠海蜂仔翻新团队" in ass
     assert "Caption,,0,0,0,,你好" in ass
     assert "内容由AI生成" in ass
+
+
+def test_em_ratio_reads_fonts_dir_without_fc_match(tmp_path, monkeypatch):
+    """Windows 上没有 fc-match，也要能从 assets/fonts 里读到字体尺寸。"""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    src = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+    pytest.importorskip("fontTools")
+    if not __import__("os").path.exists(src):
+        pytest.skip("没有测试字体")
+    shutil.copy(src, tmp_path / "wqy.ttc")
+
+    def no_fc_match(*a, **k):
+        raise FileNotFoundError("fc-match")
+
+    monkeypatch.setattr(subprocess, "run", no_fc_match)
+    subtitles._RATIO_CACHE.clear()
+    assert abs(subtitles.em_ratio("WenQuanYi Zen Hei", str(tmp_path)) - 1024 / 1290) < 0.01

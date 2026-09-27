@@ -127,7 +127,7 @@ _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 def _load_dotenv(path: Path) -> None:
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -148,7 +148,7 @@ def _expand(obj):
 def load_config(path: str | Path | None = None) -> Config:
     _load_dotenv(ROOT / ".env")
     path = Path(path) if path else ROOT / "config.yaml"
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8-sig")) if path.exists() else {}
     raw = _expand(raw or {})
 
     fields = copy.deepcopy(DEFAULT_FIELDS)
