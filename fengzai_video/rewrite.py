@@ -21,6 +21,8 @@ class Store:
     dialect: str = ""
     roles: str = ""
     style: str = ""
+    anchor: str = ""
+    webhook: str = ""
 
     def title(self) -> str:
         return self.top_title or f"{self.city}{self.brand}团队"
@@ -40,6 +42,7 @@ class Rewritten:
     subtitle: str
     highlights: list[str]
     jimeng_prompt: str
+    publish_text: str = ""
     raw: dict = field(default_factory=dict)
 
     def script_text(self) -> str:
@@ -64,6 +67,7 @@ def build_system_prompt(store: Store) -> str:
         "address_term": store.address_term or "（按当地习惯）",
         "dialect": store.dialect or "普通话",
         "roles": store.roles or "女业主 + 男师傅（与母版一致）",
+        "anchor": store.anchor or "门店主播",
         "style": store.style or "无",
     }
     for k, v in values.items():
@@ -76,7 +80,7 @@ def build_user_prompt(source: Source, avoid_openings: list[str]) -> str:
     if source.cover:
         parts.append(f"## 母版封面标题\n{source.cover}")
     if source.prompt_ref:
-        parts.append(f"## 母版即梦提示词（参考场景和镜头）\n{source.prompt_ref}")
+        parts.append(f"## 对标视频镜头分析（参考场景和镜头，按本次内容改写）\n{source.prompt_ref}")
     if avoid_openings:
         joined = "\n".join(f"- {o}" for o in avoid_openings)
         parts.append(f"## 以下开头其他门店已经用过，不要雷同\n{joined}")
@@ -145,5 +149,6 @@ def rewrite(llm_cfg: dict, store: Store, source: Source, avoid_openings: list[st
         subtitle=(data.get("subtitle") or "").strip(),
         highlights=highlights,
         jimeng_prompt=format_jimeng_prompt(data, store),
+        publish_text=(data.get("publish_text") or "").strip(),
         raw=data,
     )

@@ -161,3 +161,19 @@ def render(
     )  # fmt: skip
 
     return {"duration": info.duration, "size": (out_w, out_h), "captions": len(captions), "music": music.name if music else ""}
+
+
+def shrink_for_upload(video: Path, max_mb: float) -> Path:
+    """企微群机器人最多发 20MB 的文件；超了就另存一份压缩版（原成片不变）。"""
+    if video.stat().st_size <= max_mb * 1024 * 1024:
+        return video
+    info = probe(video)
+    total_kbps = max_mb * 8 * 1024 * 0.92 / max(info.duration, 1)
+    video_kbps = int(max(total_kbps - 160, 500))
+    out = video.with_name(video.stem + "-群发版.mp4")
+    _run(
+        ["-y", "-i", str(video), "-c:v", "libx264", "-b:v", f"{video_kbps}k", "-maxrate", f"{video_kbps}k",
+         "-bufsize", f"{video_kbps * 2}k", "-preset", "medium", "-c:a", "aac", "-b:a", "128k",
+         "-movflags", "+faststart", str(out)]
+    )  # fmt: skip
+    return out

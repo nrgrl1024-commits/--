@@ -17,16 +17,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", help="配置文件路径，默认 ./config.yaml")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("setup", help="建「门店资料」「母版」两页，并给各门店页补齐字段（可反复运行）")
-    ad = sub.add_parser("add-store", help="新开一家门店：新建它的页面并加入门店资料")
-    ad.add_argument("name", help="门店名称，同时作为页面名")
-    ad.add_argument("--city", default="")
+    sub.add_parser("setup", help="建「门店资料」「母版」「今日任务」三页，并给各门店页补齐字段（可反复运行）")
     sub.add_parser("distribute", help="把状态为「待分发」的母版分发给各门店")
     sub.add_parser("rewrite", help="AI 改写所有「待改写」的行")
     sub.add_parser("edit", help="给已上传即梦视频的行自动剪辑并回写成片")
     sub.add_parser("run", help="依次执行 distribute → rewrite → edit 一次")
     w = sub.add_parser("watch", help="常驻运行，每隔一段时间执行一次 run")
     w.add_argument("--interval", type=int, default=120, help="间隔秒数，默认 120")
+
+    la = sub.add_parser("local-analyze", help="不连飞书，本地测试识别对标视频")
+    la.add_argument("--video", required=True)
 
     lr = sub.add_parser("local-rewrite", help="不连飞书，本地测试 AI 改写")
     lr.add_argument("--script", required=True, help="母版脚本文本或 .txt 文件")
@@ -49,6 +49,16 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = load_config(args.config)
+
+    if args.cmd == "local-analyze":
+        from .analyze import analyze
+
+        result = analyze(cfg.llm, Path(args.video), cfg.work_dir / "local-analyze")
+        print("口播文案：\n" + result.script, "\n")
+        print("封面文案：", result.cover, "\n")
+        print("镜头分析：\n" + result.shots, "\n")
+        print("爆点：", result.hook)
+        return 0
 
     if args.cmd == "local-rewrite":
         from .rewrite import Source, Store, rewrite
@@ -76,14 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     from .feishu import Feishu
     from .pipeline import Pipeline
 
-    if args.cmd in ("setup", "add-store"):
+    if args.cmd == "setup":
         from . import setup_tables
 
         fs = Feishu(cfg.feishu.get("app_id"), cfg.feishu.get("app_secret"), cfg.feishu.get("app_token"))
-        if args.cmd == "add-store":
-            setup_tables.add_store(cfg, fs, args.name, args.city)
-            print(f"已新建门店页「{args.name}」，并加入门店资料")
-            return 0
         report = setup_tables.setup(cfg, fs)
         print(f"检查了 {len(report)} 家门店的页面：")
         for page, added in report.items():

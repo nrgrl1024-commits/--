@@ -13,17 +13,20 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # 飞书多维表格字段名。如果你们表格里的字段名不同，在 config.yaml 的 fields 下覆盖即可。
 DEFAULT_FIELDS = {
+    # 门店资料：每家门店一行。前 4 个必填，其余可不填
     "stores": {
         "name": "门店名称",
         "city": "城市",
-        "district": "区域",
-        "top_title": "顶部标题",
-        "brand": "品牌名",
-        "address_term": "地方称呼",
+        "anchor": "即梦主播",
+        "webhook": "企微群机器人",
+        "enabled": "启用",
         "dialect": "方言",
+        "address_term": "地方称呼",
+        "top_title": "顶部标题",
+        "district": "区域",
+        "brand": "品牌名",
         "roles": "出镜角色",
         "style": "风格备注",
-        "enabled": "启用",
         "table": "数据表名称",
     },
     "masters": {
@@ -31,9 +34,10 @@ DEFAULT_FIELDS = {
         "reference": "对标视频",
         "script": "脚本内容",
         "cover": "封面标题",
-        "prompt_ref": "即梦提示词参考",
+        "prompt_ref": "镜头分析",
         "stores": "适用门店",
         "status": "状态",
+        "note": "备注",
     },
     # 每家门店自己的那一页（数据表），字段名默认与你们现有页面一致
     "videos": {
@@ -50,18 +54,34 @@ DEFAULT_FIELDS = {
         "generated": "生成视频",
         "final": "成片",
         "cover_image": "封面图",
+        "publish": "发布文案",
         "bgm": "背景音乐",
+        "pushed": "已推送群",
         "status": "状态",
         "note": "备注",
+    },
+    # 今日任务：负责即梦的同事只看这一页
+    "tasks": {
+        "title": "门店",
+        "anchor": "即梦主播",
+        "prompt": "即梦AI提示词",
+        "generated": "生成视频",
+        "final": "成片",
+        "status": "状态",
+        "date": "日期",
+        "ref": "门店记录",
     },
 }
 
 # 这两页是总部用的，其余和「门店资料」里对得上的页面都当作门店页
 STORES_TABLE = "门店资料"
 MASTERS_TABLE = "母版"
+TASKS_TABLE = "今日任务"
+HQ_TABLES = (STORES_TABLE, MASTERS_TABLE, TASKS_TABLE)
 
 STATUS = {
     "pending_dist": "待分发",
+    "analyzing": "识别中",
     "distributed": "已分发",
     "to_rewrite": "待改写",
     "to_generate": "待生成",
@@ -72,6 +92,7 @@ STATUS = {
 
 DEFAULT_RENDER = {
     "fonts_dir": "assets/fonts",
+    "wecom_max_mb": 19,
     "title_font": "WenQuanYi Zen Hei",
     "caption_font": "WenQuanYi Zen Hei",
     "music_dir": "assets/music",

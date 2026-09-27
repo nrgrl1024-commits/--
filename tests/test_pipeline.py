@@ -1,8 +1,11 @@
-"""用一个假的飞书，验证「每家门店一页」的分发、改写、剪辑流程。"""
+"""用一个假的飞书，验证完整流程：识别对标视频 → 分发 → 改写 + 今日任务 → 剪辑 → 推送企微群。"""
 import itertools
 import json
 
-from fengzai_video import editor, llm, setup_tables
+import pytest
+
+from fengzai_video import analyze, editor, llm, setup_tables, wecom
+from fengzai_video.analyze import Analysis
 from fengzai_video.config import DEFAULT_FIELDS, DEFAULT_RENDER, Config
 from fengzai_video.pipeline import Pipeline
 
@@ -10,14 +13,11 @@ from fengzai_video.pipeline import Pipeline
 class FakeFeishu:
     def __init__(self, pages):
         self._ids = itertools.count()
-        self.tables = {}  # name -> table_id
-        self.rows = {}  # table_id -> {record_id: fields}
-        self.fields = {}  # table_id -> set
+        self.tables, self.rows, self.fields = {}, {}, {}
         for name, (fields, rows) in pages.items():
             tid = self.create_table(name, [{"field_name": f} for f in fields])
             for r in rows:
                 self.batch_create(tid, [r])
-        self.uploads = []
 
     def list_tables(self):
         return dict(self.tables)
@@ -49,7 +49,6 @@ class FakeFeishu:
         return dest
 
     def upload(self, path, parent_type):
-        self.uploads.append(path.name)
         return f"tok-{path.name}"
 
     def page(self, name):
@@ -64,62 +63,115 @@ def make_cfg(tmp_path):
     return Config(feishu={}, llm={}, render=dict(DEFAULT_RENDER), fields=DEFAULT_FIELDS, work_dir=tmp_path)
 
 
-def test_setup_keeps_existing_pages_and_adds_fields(tmp_path):
-    fs = FakeFeishu({"珠海香洲店": (OLD_PAGE_FIELDS, [OLD_ROW]), "佛山禅城店": (OLD_PAGE_FIELDS, [])})
-    report = setup_tables.setup(make_cfg(tmp_path), fs)
-    assert set(report) == {"珠海香洲店", "佛山禅城店"}  # 按现有页面预填了门店资料
-    assert {"状态", "成片", "封面图", "高亮词"} <= fs.fields[fs.tables["珠海香洲店"]]
-    assert "脚本内容" not in report["珠海香洲店"]  # 已有字段不重复建
-    assert fs.page("珠海香洲店") == [OLD_ROW]  # 旧数据原样保留
-    assert setup_tables.setup(make_cfg(tmp_path), fs)["珠海香洲店"] == []  # 反复运行不出问题
+def fake_rewrite_reply(cfg, system, user, **k):
+    city = "佛山" if "城市/区域：佛山" in system else "珠海"
+    return json.dumps({
+        "segments": [{"start": 0, "end": 4, "role": "女业主", "text": f"{city}的街坊们看过来！"}],
+        "cover_title": f"{city}厨房翻新 全包", "subtitle": "厨房翻新 全包", "highlights": [city],
+        "publish_text": f"{city}厨房翻新 #{city}装修", "prompt_main": "实拍", "prompt_negative": "无", "prompt_spec": "无",
+    }, ensure_ascii=False)  # fmt: skip
 
 
-def test_full_flow_per_store_page(tmp_path, monkeypatch):
+@pytest.fixture
+def base(tmp_path):
     fs = FakeFeishu({"珠海香洲店": (OLD_PAGE_FIELDS, [OLD_ROW]), "佛山禅城店": (OLD_PAGE_FIELDS, [])})
     cfg = make_cfg(tmp_path)
     setup_tables.setup(cfg, fs)
     for row in fs.rows[fs.tables["门店资料"]].values():
         row["城市"] = row["门店名称"][:2]
-    fs.batch_create(fs.tables["母版"], [{"选题": "厨房翻新", "脚本内容": "女业主：珠海的街坊们……", "状态": "待分发"}])
-
-    pipe = Pipeline(cfg, fs)
-    assert pipe.distribute() == 2
-    assert fs.page("母版")[0]["状态"] == "已分发"
-    new_row = fs.page("佛山禅城店")[0]
-    assert new_row["状态"] == "待改写" and new_row["母版"]
-
-    seen_users = []
-
-    def fake_chat(cfg, system, user, **k):
-        seen_users.append(user)
-        city = "佛山" if "城市/区域：佛山" in system else "珠海"
-        return json.dumps({
-            "segments": [{"start": 0, "end": 4, "role": "女业主", "text": f"{city}的街坊们看过来！"}],
-            "cover_title": f"{city}厨房翻新 全包", "subtitle": "厨房翻新 全包",
-            "highlights": [city], "prompt_main": "实拍", "prompt_negative": "无", "prompt_spec": "无",
-        }, ensure_ascii=False)  # fmt: skip
-
-    monkeypatch.setattr(llm, "chat", fake_chat)
-    assert pipe.rewrite_pending() == 2
-    assert "不要雷同" in seen_users[1]  # 第二家门店会拿到第一家的开头去避开
-    foshan = fs.page("佛山禅城店")[0]
-    assert foshan["改写脚本内容"] == "女业主：佛山的街坊们看过来！" and foshan["状态"] == "待生成"
-
-    rendered = []
-    monkeypatch.setattr(editor, "render", lambda *a, **k: rendered.append(a[4]) or {})
-    foshan["生成视频"] = [{"file_token": "jimeng"}]
-    assert pipe.edit_pending() == 1  # 只剪新行；珠海那条旧行没有状态，不会被动
-    assert rendered == ["佛山蜂仔翻新团队"]
-    assert foshan["状态"] == "已完成" and foshan["成片"][0]["file_token"].startswith("tok-")
-    assert fs.page("珠海香洲店")[0] == OLD_ROW
+        row["即梦主播"] = f"{row['城市']}阿乐师傅"
+    return fs, cfg
 
 
-def test_disabled_store_skipped(tmp_path):
-    fs = FakeFeishu({"珠海香洲店": (OLD_PAGE_FIELDS, []), "佛山禅城店": (OLD_PAGE_FIELDS, [])})
-    cfg = make_cfg(tmp_path)
-    setup_tables.setup(cfg, fs)
+def test_setup_keeps_existing_pages_and_adds_fields(base):
+    fs, cfg = base
+    assert {"门店资料", "母版", "今日任务"} <= set(fs.tables)
+    assert {"状态", "成片", "发布文案", "已推送群"} <= fs.fields[fs.tables["珠海香洲店"]]
+    assert fs.page("珠海香洲店") == [OLD_ROW]  # 旧数据原样保留
+    assert setup_tables.setup(cfg, fs)["珠海香洲店"] == []  # 反复运行不出问题
+
+
+def test_new_store_row_creates_page_automatically(base):
+    fs, cfg = base
+    fs.batch_create(fs.tables["门店资料"], [{"门店名称": "中山石岐店", "城市": "中山", "启用": True}])
+    _, pages = Pipeline(cfg, fs).load()
+    assert "中山石岐店" in fs.tables and "中山石岐店" in [p.page for p in pages]
+
+
+def test_disabled_store_skipped(base):
+    fs, cfg = base
     for row in fs.rows[fs.tables["门店资料"]].values():
-        if row["门店名称"] == "佛山禅城店":
-            row["启用"] = False
+        row["启用"] = row["门店名称"] != "佛山禅城店"
     _, pages = Pipeline(cfg, fs).load()
     assert [p.page for p in pages] == ["珠海香洲店"]
+
+
+def test_full_flow(base, monkeypatch):
+    fs, cfg = base
+    for row in fs.rows[fs.tables["门店资料"]].values():
+        if row["门店名称"] == "佛山禅城店":
+            row["企微群机器人"] = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc"
+
+    # 1. 总部只上传对标视频
+    fs.batch_create(fs.tables["母版"], [{"选题": "厨房翻新", "对标视频": [{"file_token": "ref"}], "状态": "待分发"}])
+    monkeypatch.setattr(
+        analyze, "analyze", lambda *a: Analysis("女业主：珠海的街坊们别再踩坑啦！", "珠海厨房翻新", "0-4秒：厨房", "痛点开头")
+    )
+    pipe = Pipeline(cfg, fs)
+    assert pipe.distribute() == 2
+    master = fs.page("母版")[0]
+    assert master["状态"] == "已分发" and master["脚本内容"].startswith("女业主") and "爆点" in master["镜头分析"]
+
+    # 2. 改写 + 汇总到今日任务
+    monkeypatch.setattr(llm, "chat", fake_rewrite_reply)
+    assert pipe.rewrite_pending() == 2
+    foshan = fs.page("佛山禅城店")[0]
+    assert foshan["改写脚本内容"] == "女业主：佛山的街坊们看过来！" and foshan["发布文案"].startswith("佛山")
+    tasks = fs.page("今日任务")
+    assert [t["门店"] for t in tasks] == ["珠海香洲店", "佛山禅城店"]
+    assert tasks[1]["即梦主播"] == "佛山阿乐师傅" and tasks[1]["状态"] == "待生成"
+
+    # 重新改写不会重复加任务
+    foshan["状态"] = "待改写"
+    pipe.rewrite_pending()
+    assert len(fs.page("今日任务")) == 2
+
+    # 3. 同事在今日任务页上传即梦视频 → 剪辑 → 推送
+    rendered, pushed = [], []
+    monkeypatch.setattr(editor, "render", lambda *a, **k: rendered.append(a[4]) or {})
+    monkeypatch.setattr(editor, "shrink_for_upload", lambda v, mb: v)
+    monkeypatch.setattr(wecom, "push_video", lambda hook, store, v, c, text: pushed.append((store, text)))
+    tasks[1]["生成视频"] = [{"file_token": "jimeng"}]
+    assert pipe.edit_pending() == 1
+    assert rendered == ["佛山蜂仔翻新团队"]
+    assert foshan["状态"] == "已完成" and foshan["成片"] and foshan["已推送群"] is True
+    assert tasks[1]["状态"] == "已完成" and tasks[1]["成片"]
+    assert pushed == [("佛山禅城店", "佛山厨房翻新 #佛山装修")]
+    assert fs.page("珠海香洲店")[0] == OLD_ROW  # 旧行没有状态，不会被动
+
+
+def test_master_without_video_or_script_fails_clearly(base):
+    fs, cfg = base
+    fs.batch_create(fs.tables["母版"], [{"选题": "空母版", "状态": "待分发"}])
+    assert Pipeline(cfg, fs).distribute() == 0
+    master = fs.page("母版")[0]
+    assert master["状态"] == "失败" and "脚本内容" in master["备注"]
+
+
+def test_push_failure_keeps_video(base, monkeypatch):
+    fs, cfg = base
+    for row in fs.rows[fs.tables["门店资料"]].values():
+        row["企微群机器人"] = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc"
+    tid = fs.tables["珠海香洲店"]
+    fs.batch_create(tid, [{"状态": "待生成", "改写脚本内容": "女业主：你好", "生成视频": [{"file_token": "v"}]}])
+    monkeypatch.setattr(editor, "render", lambda *a, **k: {})
+    monkeypatch.setattr(editor, "shrink_for_upload", lambda v, mb: v)
+
+    def boom(*a):
+        raise wecom.WecomError("网络错误")
+
+    monkeypatch.setattr(wecom, "push_video", boom)
+    assert Pipeline(cfg, fs).edit_pending() == 1
+    row = fs.page("珠海香洲店")[-1]
+    assert row["状态"] == "已完成" and "推送企微群失败" in row["备注"] and not row.get("已推送群")
+

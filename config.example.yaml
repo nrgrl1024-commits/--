@@ -5,7 +5,7 @@ feishu:
   app_secret: ${FEISHU_APP_SECRET}
   # 多维表格链接 https://xxx.feishu.cn/base/<这一段就是 app_token>?table=...
   app_token: ${FEISHU_APP_TOKEN}
-  # 不用填 table_id：系统按页面名称找「门店资料」「母版」和各门店自己的页面
+  # 不用填 table_id：系统按页面名称找「门店资料」「母版」「今日任务」和各门店自己的页面
 
 llm:
   # 默认用火山方舟（豆包）。换 DeepSeek：base_url 改为 https://api.deepseek.com/v1，model 改为 deepseek-chat
@@ -13,6 +13,9 @@ llm:
   api_key: ${ARK_API_KEY}
   # 填火山方舟控制台里的模型名或推理接入点 ID（ep-xxxx）
   model: ${ARK_MODEL}
+  # 识别对标视频用的模型，要能看图片；不填就用上面的 model
+  vision_model: ""
+  vision_max_frames: 16        # 从对标视频里截多少张画面给模型看
 
 render:
   # 把买好授权 / 可免费商用的字体文件放进 assets/fonts，然后在这里写字体名称（不是文件名）
@@ -25,6 +28,7 @@ render:
   output_width: 1080
   crf: 18                      # 画质，越小越清晰、文件越大，16~20 都合适
   caption_max_chars: 9         # 每条字幕最多几个字
+  wecom_max_mb: 19             # 发企微群的视频超过这个大小会自动压缩
   title_color: "#FFE100"
   highlight_color: "#FFE100"
 
