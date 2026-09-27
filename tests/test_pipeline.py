@@ -55,8 +55,8 @@ class FakeFeishu:
         return list(self.rows[self.tables[name]].values())
 
 
-OLD_PAGE_FIELDS = ["文本", "脚本内容", "改写脚本内容", "封面标题", "对标视频", "即梦AI提示词", "生成视频"]
-OLD_ROW = {"文本": "珠海", "脚本内容": "旧脚本", "生成视频": [{"file_token": "old"}]}  # 以前手工做的
+OLD_PAGE_FIELDS = ["文本", "对标脚本内容", "改写脚本内容", "封面标题", "对标视频", "即梦AI提示词", "生成视频"]
+OLD_ROW = {"文本": "珠海", "对标脚本内容": "旧脚本", "生成视频": [{"file_token": "old"}]}  # 以前手工做的
 
 
 def make_cfg(tmp_path):
@@ -175,3 +175,17 @@ def test_push_failure_keeps_video(base, monkeypatch):
     row = fs.page("珠海香洲店")[-1]
     assert row["状态"] == "已完成" and "推送企微群失败" in row["备注"] and not row.get("已推送群")
 
+
+
+def test_prefill_from_numbered_page_names(tmp_path):
+    fs = FakeFeishu({"1安徽合肥大铺头(男)": (OLD_PAGE_FIELDS, []), "4广东东莞南城（女）": (OLD_PAGE_FIELDS, [])})
+    cfg = make_cfg(tmp_path)
+    report = setup_tables.setup(cfg, fs)
+    stores = {r["数据表名称"]: r for r in fs.page("门店资料")}
+    assert stores["1安徽合肥大铺头(男)"]["门店名称"] == "安徽合肥大铺头"
+    assert stores["1安徽合肥大铺头(男)"]["城市"] == "合肥" and stores["1安徽合肥大铺头(男)"]["区域"] == "大铺头"
+    assert stores["4广东东莞南城（女）"]["出镜角色"] == "门店主播为女性"
+    assert "对标脚本内容" not in report["1安徽合肥大铺头(男)"]  # 用你们原有的字段，不重复建
+    _, pages = Pipeline(cfg, fs).load()
+    assert {p.store.name for p in pages} == {"安徽合肥大铺头", "广东东莞南城"}
+    assert all(p.store.title().endswith("蜂仔翻新团队") for p in pages)
