@@ -9,6 +9,8 @@ import requests
 
 BASE = "https://open.feishu.cn/open-apis"
 SMALL_UPLOAD_LIMIT = 20 * 1024 * 1024  # 超过 20MB 走分片上传
+RATE_LIMIT_CODES = {99991400, 1254290}  # 飞书"请求过于频繁"
+RETRIES = 5
 
 
 class FeishuError(RuntimeError):
@@ -43,17 +45,26 @@ class Feishu:
         return self._token
 
     def request(self, method: str, path: str, **kw) -> dict:
-        headers = kw.pop("headers", {})
-        headers["Authorization"] = f"Bearer {self.token()}"
         url = path if path.startswith("http") else f"{BASE}{path}"
-        resp = requests.request(method, url, headers=headers, timeout=self.timeout, **kw)
-        try:
-            data = resp.json()
-        except ValueError:
-            raise FeishuError(f"{method} {path} 返回非 JSON（HTTP {resp.status_code}）：{resp.text[:200]}")
-        if data.get("code") != 0:
-            raise FeishuError(f"{method} {path} 失败：code={data.get('code')} msg={data.get('msg')}")
-        return data.get("data") or {}
+        headers = kw.pop("headers", {})
+        for attempt in range(RETRIES + 1):
+            headers["Authorization"] = f"Bearer {self.token()}"
+            resp = requests.request(method, url, headers=headers, timeout=self.timeout, **kw)
+            try:
+                data = resp.json()
+            except ValueError:
+                if resp.status_code != 429:
+                    raise FeishuError(f"{method} {path} 返回非 JSON（HTTP {resp.status_code}）：{resp.text[:200]}")
+                data = {}
+            # 请求太快被飞书限流时，等一下再试（上传文件的请求体已读完，不能重发，所以不重试）
+            limited = resp.status_code == 429 or data.get("code") in RATE_LIMIT_CODES
+            if limited and attempt < RETRIES and "files" not in kw:
+                time.sleep(2 ** attempt)
+                continue
+            if data.get("code") != 0:
+                raise FeishuError(f"{method} {path} 失败：code={data.get('code')} msg={data.get('msg')}")
+            return data.get("data") or {}
+        raise FeishuError(f"{method} {path} 多次被限流，请稍后再试")
 
     def _records_path(self, table_id: str) -> str:
         return f"/bitable/v1/apps/{self.app_token}/tables/{table_id}/records"

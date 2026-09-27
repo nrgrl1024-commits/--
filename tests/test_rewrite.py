@@ -70,3 +70,22 @@ def test_config_accepts_bom_files(tmp_path, monkeypatch):
     monkeypatch.setenv("FT_TEST", "abc")
     cfg = config.load_config(cfg_file)
     assert cfg.feishu["app_token"] == "abc"
+
+
+def test_feishu_retries_when_rate_limited(monkeypatch):
+    from fengzai_video import feishu
+
+    class R:
+        def __init__(self, code, status=200):
+            self.status_code, self._code = status, code
+
+        def json(self):
+            return {"code": self._code, "msg": "x", "data": {"ok": 1}}
+
+    replies = [R(99991400), R(0, 429), R(0)]
+    monkeypatch.setattr(feishu.requests, "request", lambda *a, **k: replies.pop(0))
+    monkeypatch.setattr(feishu.time, "sleep", lambda s: None)
+    fs = feishu.Feishu("id", "secret", "app")
+    monkeypatch.setattr(fs, "token", lambda: "t")
+    assert fs.request("GET", "/x") == {"ok": 1}
+    assert replies == []

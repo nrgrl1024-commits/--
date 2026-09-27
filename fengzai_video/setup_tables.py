@@ -164,8 +164,9 @@ def store_page_name(cfg: Config, fields: dict) -> str:
 def setup(cfg: Config, fs: Feishu) -> dict[str, list[str]]:
     tables = ensure_base(cfg, fs)
     report = {}
-    for rec in fs.list_records(tables[STORES_TABLE]):
-        page = store_page_name(cfg, rec.get("fields", {}))
-        if page and page not in HQ_TABLES:
-            report[page] = ensure_store_page(cfg, fs, tables, page)
+    records = fs.list_records(tables[STORES_TABLE])
+    pages = [p for p in (store_page_name(cfg, r.get("fields", {})) for r in records) if p and p not in HQ_TABLES]
+    for i, page in enumerate(pages, 1):
+        report[page] = ensure_store_page(cfg, fs, tables, page)
+        log.info("[%d/%d] %s：%s", i, len(pages), page, f"新增 {len(report[page])} 个字段" if report[page] else "字段齐全")
     return report
