@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>门店混剪</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2129; --muted: #86909c; --line: #e5e6eb;
+    --accent: #1664ff; --ok: #00a870; --warn: #e37318; --bad: #d54941;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-weight: 600; color: var(--muted); font-size: 13px; }
+  input[type=text], select { width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #fff; }
+  input.missing { border-color: var(--bad); background: #fff1f0; }
+  button, .btn { display: inline-block; padding: 7px 14px; border: 1px solid var(--line); border-radius: 6px;
+    background: #fff; color: var(--text); font: inherit; cursor: pointer; text-decoration: none; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tag { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 12px; background: #f2f3f5; }
+  .tag.ok { background: #e8f8f2; color: var(--ok); }
+  .tag.warn { background: #fff3e8; color: var(--warn); }
+  .tag.bad { background: #fff1f0; color: var(--bad); }
+  .hint { color: var(--muted); font-size: 13px; }
+  pre.tree { background: #f7f8fa; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin: 8px 0; overflow-x: auto; }
+  .warnbox { background: #fff3e8; color: var(--warn); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+  .results figure { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .results video { width: 100%; aspect-ratio: 9/16; background: #000; border-radius: 4px; }
+  .results figcaption { font-size: 13px; margin-top: 6px; word-break: break-all; }
+  #stage { width: 180px; aspect-ratio: 9/16; background: #000; border-radius: 6px; }
+  .table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>门店混剪</h1>
+  <p class="sub">每条成片 = 本店主播方言口播（整条声音）+ 本店空镜 / 通用素材（画面）。视频只在这台电脑里处理，不会上传。</p>
+
+  <section>
+    <h2>① 门店资料</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th style="width:18%">门店名（= 文件夹名）</th><th style="width:11%">城市</th><th style="width:11%">方言</th><th style="width:13%">主播来源</th><th>顶部标题（不填 = 城市 + 品牌）</th><th style="width:50px"></th></tr></thead>
+        <tbody id="storeRows"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="addStore">+ 加门店</button>
+      <button id="exportStores">导出备份</button>
+      <label class="btn">导入备份<input id="importStores" type="file" accept=".json" hidden></label>
+      <span class="hint">品牌：</span><input id="brand" type="text" style="width:160px">
+    </div>
+    <p class="hint">资料自动保存在这台电脑的浏览器里。主播来源选「即梦」时，成片右下角会加"内容由AI生成"（国家规定）。</p>
+  </section>
+
+  <section>
+    <h2>② 选择素材文件夹</h2>
+    <p class="hint" style="margin:0">按下面的样子整理好一个文件夹，然后选中它。<b>每个「口播」视频出一条成片</b>。</p>
+    <pre class="tree">素材/
+├── 通用/                 ← 所有门店都能用的画面（施工、前后对比……）
+├── 珠海香洲店/
+│   ├── 口播/             ← 本店主播的方言口播：真人拍摄，或从即梦生成后下载
+│   └── 空镜/             ← 本店拍的空镜头（门头、店内、施工现场），优先使用
+└── 佛山禅城店/
+    └── 口播/</pre>
+    <label class="btn">选择文件夹<input id="folder" type="file" webkitdirectory multiple hidden></label>
+    <span id="folderInfo" class="hint"></span>
+  </section>
+
+  <section>
+    <h2>③ 生成</h2>
+    <div id="formatWarn"></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th style="width:36px"><input type="checkbox" id="checkAll" checked></th><th>门店</th><th>口播文件</th><th>素材</th><th>状态</th></tr></thead>
+        <tbody id="jobRows"><tr><td colspan="5" class="hint">还没有选择素材文件夹</td></tr></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="start" class="primary" disabled>开始批量生成</button>
+      <button id="downloadAll" disabled>全部下载</button>
+      <span id="progress" class="hint"></span>
+    </div>
+    <p class="hint">生成时按口播实际时长录制（30 秒的口播约 30 秒出片）。<b>生成过程中请保持这个页面在最前面</b>，切到别的窗口会变慢或卡住。</p>
+    <div class="row" style="align-items:flex-start;margin-top:8px">
+      <canvas id="stage" width="1080" height="1920"></canvas>
+      <div class="results" id="results" style="flex:1;margin-top:0"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const W = 1080, H = 1920;
+const HEAD = 3, TAIL = 3, BROLL = 2.5, ANCHOR_MID = 2, BROLL_RUN = 3;
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm)$/i;
+const SOURCES = ["真人", "即梦"];
+
+// ---------- 门店资料 ----------
+const store = {
+  load(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+  save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} },
+};
+let stores = store.load("mixcut.stores", []);
+let brand = store.load("mixcut.brand", "蜂仔翻新团队");
+const saveStores = () => store.save("mixcut.stores", stores);
+
+function storeByName(name) { return stores.find(s => s.name === name); }
+function titleOf(s) { return (s.title || "").trim() || ((s.city || "").trim() + brand); }
+
+function renderStores() {
+  const tb = document.getElementById("storeRows");
+  tb.innerHTML = "";
+  if (!stores.length) tb.innerHTML = '<tr><td colspan="6" class="hint">还没有门店。点「加门店」，或直接选择素材文件夹，会按文件夹名自动加上。</td></tr>';
+  stores.forEach((s, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" data-k="name"></td>
+      <td><input type="text" data-k="city"></td>
+      <td><input type="text" data-k="dialect" placeholder="如 粤语"></td>
+      <td><select data-k="source">${SOURCES.map(x => `<option>${x}</option>`).join("")}</select></td>
+      <td><input type="text" data-k="title"></td>
+      <td><button title="删除">✕</button></td>`;
+    tr.querySelectorAll("[data-k]").forEach(el => {
+      const k = el.dataset.k;
+      el.value = s[k] || (k === "source" ? "真人" : "");
+      if ((k === "city" || k === "dialect") && !el.value) el.classList.add("missing");
+      el.addEventListener("change", () => {
+        s[k] = el.value.trim(); saveStores();
+        el.classList.toggle("missing", (k === "city" || k === "dialect") && !s[k]);
+        renderJobs();
+      });
+    });
+    tr.querySelector("button").onclick = () => {
+      if (confirm(`删除门店「${s.name}」？`)) { stores.splice(i, 1); saveStores(); renderStores(); renderJobs(); }
+    };
+    tb.appendChild(tr);
+  });
+}
+
+document.getElementById("addStore").onclick = () => { stores.push({ name: "", city: "", dialect: "", source: "真人", title: "" }); saveStores(); renderStores(); };
+const brandInput = document.getElementById("brand");
+brandInput.value = brand;
+brandInput.onchange = () => { brand = brandInput.value.trim(); store.save("mixcut.brand", brand); };
+document.getElementById("exportStores").onclick = () => {
+  const blob = new Blob([JSON.stringify({ brand, stores }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "门店资料.json"; a.click();
+};
+document.getElementById("importStores").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    stores = data.stores || []; brand = data.brand || brand; brandInput.value = brand;
+    saveStores(); store.save("mixcut.brand", brand); renderStores(); renderJobs();
+  } catch { alert("这个文件不是导出的门店资料"); }
+  e.target.value = "";
+};
+
+// ---------- 素材文件夹 ----------
+let shared = [];          // 通用素材
+let byStore = new Map();  // 门店名 -> { voices: [], broll: [] }
+let jobs = [];
+
+document.getElementById("folder").onchange = e => {
+  shared = []; byStore = new Map();
+  for (const f of e.target.files) {
+    if (!VIDEO_EXT.test(f.name)) continue;
+    const parts = f.webkitRelativePath.split("/");
+    if (parts.length < 3) continue;          // 素材/xxx.mp4：不知道属于谁
+    const owner = parts[1];
+    if (owner === "通用") { shared.push(f); continue; }
+    if (!byStore.has(owner)) byStore.set(owner, { voices: [], broll: [] });
+    const isVoice = parts.length >= 4 && parts[2] === "口播";
+    byStore.get(owner)[isVoice ? "voices" : "broll"].push(f);
+  }
+  let added = 0;
+  for (const name of byStore.keys()) {
+    if (!storeByName(name)) { stores.push({ name, city: "", dialect: "", source: "真人", title: "" }); added++; }
+  }
+  if (added) { saveStores(); renderStores(); }
+  jobs = [];
+  for (const [name, g] of byStore) {
+    g.voices.sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    g.voices.forEach(v => jobs.push({ store: name, voice: v, broll: g.broll, checked: true, state: "等待" }));
+  }
+  document.getElementById("folderInfo").textContent =
+    `　${byStore.size} 家门店，${jobs.length} 条口播，${shared.length} 个通用素材` + (added ? `，新加了 ${added} 家门店，请补城市和方言` : "");
+  renderJobs();
+};
+
+function jobProblem(j) {
+  const s = storeByName(j.store);
+  if (!s || !s.city) return "门店资料里缺城市";
+  if (!s.dialect) return "门店资料里缺方言";
+  return "";
+}
+
+function renderJobs() {
+  const tb = document.getElementById("jobRows");
+  tb.innerHTML = "";
+  const noVoice = [...byStore].filter(([, g]) => !g.voices.length).map(([n]) => n);
+  if (!jobs.length && !noVoice.length) { tb.innerHTML = '<tr><td colspan="5" class="hint">还没有选择素材文件夹</td></tr>'; }
+  for (const j of jobs) {
+    const s = storeByName(j.store) || {};
+    const problem = jobProblem(j);
+    const tr = document.createElement("tr");
+    const stateCls = j.state === "完成" ? "ok" : j.state.startsWith("失败") ? "bad" : j.state === "生成中" ? "warn" : "";
+    tr.innerHTML = `
+      <td><input type="checkbox" ${j.checked && !problem ? "checked" : ""} ${problem ? "disabled" : ""}></td>
+      <td>${esc(j.store)}<br><span class="tag">${esc(s.city || "?")}</span> <span class="tag">${esc(s.dialect || "?")}</span> <span class="tag">${esc(s.source || "真人")}</span></td>
+      <td>${esc(j.voice.name)}</td>
+      <td class="hint">本店空镜 ${j.broll.length} · 通用 ${shared.length}</td>
+      <td>${problem ? `<span class="tag bad">${problem}</span>` : `<span class="tag ${stateCls}">${esc(j.state)}</span>`}</td>`;
+    tr.querySelector("input").onchange = ev => { j.checked = ev.target.checked; updateButtons(); };
+    tb.appendChild(tr);
+  }
+  for (const n of noVoice) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td></td><td>${esc(n)}</td><td colspan="2" class="hint">口播/ 文件夹里没有视频</td><td><span class="tag bad">缺主播口播，跳过</span></td>`;
+    tb.appendChild(tr);
+  }
+  updateButtons();
+}
+document.getElementById("checkAll").onchange = e => { jobs.forEach(j => j.checked = e.target.checked); renderJobs(); };
+
+function runnable() { return jobs.filter(j => j.checked && !jobProblem(j)); }
+let busy = false;
+function updateButtons() {
+  document.getElementById("start").disabled = busy || !runnable().length;
+  document.getElementById("downloadAll").disabled = busy || !outputs.length;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+// ---------- 剪辑计划 ----------
+// 声音始终是主播口播；画面：开头主播 → 素材×3 → 主播 → 素材×3 … → 结尾主播。
+function buildPlan(duration, hasBroll) {
+  if (!hasBroll || duration <= HEAD + TAIL + BROLL) return [{ type: "anchor", start: 0, end: duration }];
+  const plan = [{ type: "anchor", start: 0, end: HEAD }];
+  const end = duration - TAIL;
+  let t = HEAD, run = 0;
+  while (end - t > 0.01) {
+    if (run === BROLL_RUN && end - t > ANCHOR_MID + 1) {
+      plan.push({ type: "anchor", start: t, end: t + ANCHOR_MID }); t += ANCHOR_MID; run = 0; continue;
+    }
+    let len = Math.min(BROLL, end - t);
+    if (end - t - len < 1) len = end - t;   // 不留不到 1 秒的碎片
+    plan.push({ type: "broll", start: t, end: t + len }); t += len; run++;
+  }
+  plan.push({ type: "anchor", start: end, end: duration });
+  return plan;
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+// ---------- 渲染 ----------
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d");
+let audioCtx = null;
+const outputs = [];
+
+function pickMime() {
+  const list = ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4;codecs=avc1,opus", "video/mp4",
+                "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  return list.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+}
+
+function waitEvent(el, name) {
+  return new Promise((ok, fail) => {
+    const done = () => { el.removeEventListener(name, done); el.removeEventListener("error", bad); ok(); };
+    const bad = () => { el.removeEventListener(name, done); el.removeEventListener("error", bad); fail(new Error("视频打不开")); };
+    el.addEventListener(name, done); el.addEventListener("error", bad);
+  });
+}
+
+async function openVideo(file, { muted = true, loop = false } = {}) {
+  const v = document.createElement("video");
+  v.muted = muted; v.loop = loop; v.playsInline = true; v.preload = "auto";
+  v.src = URL.createObjectURL(file);
+  await waitEvent(v, "loadeddata");
+  return v;
+}
+
+async function seek(v, t) {
+  if (Math.abs(v.currentTime - t) < 0.01) return;
+  const p = waitEvent(v, "seeked"); v.currentTime = t; await p;
+}
+
+function drawCover(v) {
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return;
+  const scale = Math.max(W / vw, H / vh);
+  const dw = vw * scale, dh = vh * scale;
+  ctx.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
+const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif';
+function drawOverlay(title, aiLabel) {
+  if (title) {
+    let size = 92;
+    ctx.font = `900 ${size}px ${FONT}`;
+    while (ctx.measureText(title).width > W - 120 && size > 40) { size -= 4; ctx.font = `900 ${size}px ${FONT}`; }
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+    ctx.lineWidth = size * 0.16; ctx.strokeStyle = "#000"; ctx.strokeText(title, W / 2, 220);
+    ctx.fillStyle = "#FFE100"; ctx.fillText(title, W / 2, 220);
+  }
+  if (aiLabel) {
+    ctx.font = `600 38px ${FONT}`; ctx.textAlign = "right"; ctx.textBaseline = "alphabetic";
+    ctx.lineWidth = 6; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText("内容由AI生成", W - 40, H - 70);
+    ctx.fillStyle = "#fff"; ctx.fillText("内容由AI生成", W - 40, H - 70);
+  }
+}
+
+async function renderJob(job, onTick) {
+  const s = storeByName(job.store);
+  const title = titleOf(s), aiLabel = s.source === "即梦";
+  const voice = await openVideo(job.voice, { muted: false });
+  const duration = voice.duration;
+  if (!isFinite(duration) || duration < 1) throw new Error("口播视频时长读不出来");
+
+  // 本店空镜优先，不够再用通用素材
+  const pool = [...shuffle(job.broll), ...shuffle(shared)];
+  const plan = buildPlan(duration, pool.length > 0);
+  const opened = [];
+  try {
+    let k = 0;
+    for (const seg of plan) {
+      if (seg.type !== "broll") continue;
+      const v = await openVideo(pool[k++ % pool.length], { loop: true });
+      const len = seg.end - seg.start;
+      await seek(v, Math.random() * Math.max(0, v.duration - len - 0.1));
+      seg.video = v; opened.push(v);
+    }
+
+    audioCtx = audioCtx || new AudioContext();
+    await audioCtx.resume();
+    const src = audioCtx.createMediaElementSource(voice);
+    const dest = audioCtx.createMediaStreamDestination();
+    src.connect(dest);
+
+    const stream = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    const mime = pickMime();
+    const rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 160_000 });
+    const chunks = [];
+    rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    const stopped = new Promise(ok => rec.onstop = ok);
+
+    let current = null, finished = false;
+    const frame = () => {
+      const t = voice.currentTime;
+      const seg = plan.find(p => t < p.end) || plan[plan.length - 1];
+      if (seg !== current) {
+        if (current && current.video) current.video.pause();
+        if (seg.video) seg.video.play().catch(() => {});
+        current = seg;
+      }
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+      drawCover(seg.video || voice);
+      drawOverlay(title, aiLabel);
+      onTick(t / duration);
+      if (!finished) requestAnimationFrame(frame);
+    };
+
+    frame();
+    rec.start(1000);
+    const ended = waitEvent(voice, "ended");
+    await voice.play();
+    await ended;
+    finished = true;
+    rec.stop();
+    await stopped;
+    src.disconnect();
+    stream.getTracks().forEach(tr => tr.stop());
+
+    const anchorSec = plan.filter(p => p.type === "anchor").reduce((a, p) => a + p.end - p.start, 0);
+    return { blob: new Blob(chunks, { type: (mime || "video/webm").split(";")[0] }), duration, anchorSec };
+  } finally {
+    for (const v of [voice, ...opened]) { v.pause(); URL.revokeObjectURL(v.src); v.removeAttribute("src"); v.load(); }
+  }
+}
+
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+
+document.getElementById("start").onclick = async () => {
+  const list = runnable();
+  busy = true; updateButtons();
+  const prog = document.getElementById("progress");
+  const counter = {};
+  for (let i = 0; i < list.length; i++) {
+    const j = list[i];
+    j.state = "生成中"; renderJobs();
+    try {
+      const r = await renderJob(j, p => prog.textContent = `第 ${i + 1}/${list.length} 条：${j.store} ${Math.round(p * 100)}%`);
+      counter[j.store] = (counter[j.store] || 0) + 1;
+      const ext = r.blob.type.includes("mp4") ? "mp4" : "webm";
+      const name = `${j.store}_${today()}_${counter[j.store]}.${ext}`;
+      addResult(name, r);
+      j.state = "完成";
+    } catch (err) {
+      console.error(err);
+      j.state = "失败：" + (err.message || err);
+    }
+    j.checked = j.state !== "完成";
+    renderJobs();
+  }
+  prog.textContent = `完成 ${list.filter(j => j.state === "完成").length}/${list.length} 条`;
+  busy = false; updateButtons();
+};
+
+function addResult(name, r) {
+  const url = URL.createObjectURL(r.blob);
+  outputs.push({ name, url });
+  const fig = document.createElement("figure");
+  fig.innerHTML = `<video controls preload="metadata"></video>
+    <figcaption><a download></a><br><span class="hint">共 ${r.duration.toFixed(1)} 秒，主播出镜 ${r.anchorSec.toFixed(1)} 秒</span></figcaption>`;
+  fig.querySelector("video").src = url;
+  const a = fig.querySelector("a"); a.href = url; a.download = name; a.textContent = "下载 " + name;
+  document.getElementById("results").prepend(fig);
+}
+
+document.getElementById("downloadAll").onclick = async () => {
+  for (const o of outputs) {
+    const a = document.createElement("a"); a.href = o.url; a.download = o.name; a.click();
+    await new Promise(r => setTimeout(r, 400));
+  }
+};
+
+document.addEventListener("visibilitychange", () => {
+  if (busy && document.hidden) document.title = "⚠ 请回到混剪页面";
+  else document.title = "门店混剪";
+});
+
+// 视频号要 H.264 编码的 mp4；旧版浏览器只能导出 webm 或 VP9
+if (!pickMime().includes("avc1")) {
+  document.getElementById("formatWarn").innerHTML =
+    '<div class="warnbox">这个浏览器导出的视频格式视频号可能不认。请用最新版的 Chrome 或 Edge 打开这个页面。</div>';
+}
+
+renderStores();
+renderJobs();
+</script>
+</body>
+</html>
