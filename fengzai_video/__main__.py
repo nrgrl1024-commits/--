@@ -17,11 +17,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", help="配置文件路径，默认 ./config.yaml")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("setup", help="建「门店资料」「母版」「今日任务」三页，并给各门店页补齐字段（可反复运行）")
+    sub.add_parser("setup", help="建「门店资料」「母版」「今日任务」「素材库」「混剪」几页，并给各门店页补齐字段（可反复运行）")
     sub.add_parser("distribute", help="把状态为「待分发」的母版分发给各门店")
     sub.add_parser("rewrite", help="AI 改写所有「待改写」的行")
     sub.add_parser("edit", help="给已上传即梦视频的行自动剪辑并回写成片")
-    sub.add_parser("run", help="依次执行 distribute → rewrite → edit 一次")
+    sub.add_parser("mix", help="给每个城市做今天的混剪（每个城市每天一条）")
+    sub.add_parser("run", help="依次执行 distribute → rewrite → edit → mix 一次")
     w = sub.add_parser("watch", help="常驻运行，每隔一段时间执行一次 run")
     w.add_argument("--interval", type=int, default=120, help="间隔秒数，默认 120")
 
@@ -45,6 +46,15 @@ def main(argv: list[str] | None = None) -> int:
     le.add_argument("--highlights", default="", help="高亮词，逗号分隔")
     le.add_argument("--music", default="", help="背景音乐文件；不填则从音乐库自动选")
     le.add_argument("--out", default="out/成片.mp4")
+
+    lm = sub.add_parser("local-mix", help="不连飞书，本地测试混剪")
+    lm.add_argument("--voice", required=True, help="已经配好口播的即梦视频")
+    lm.add_argument("--anchor", nargs="+", required=True, help="本城市主播出镜素材，可以写多个")
+    lm.add_argument("--broll", nargs="*", default=[], help="其他素材（施工、对比、特写等），可以写多个")
+    lm.add_argument("--script", required=True, help="口播脚本文本或 .txt 文件，用来出字幕")
+    lm.add_argument("--title", required=True, help="顶部大标题，如 珠海蜂仔翻新团队")
+    lm.add_argument("--cover", default="", help="封面标题")
+    lm.add_argument("--out", default="out/混剪.mp4")
 
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -83,6 +93,29 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(info, ensure_ascii=False))
         return 0
 
+    if args.cmd == "local-mix":
+        from . import mixer
+
+        out = Path(args.out)
+        items = [(f, Path(f), True) for f in args.anchor] + [(f, Path(f), False) for f in args.broll]
+        clips = mixer.load_clips(items)
+        voice = Path(args.voice)
+        segments = mixer.plan(
+            editor.probe(voice).duration, [c for c in clips if c.anchor], [c for c in clips if not c.anchor],
+            seed=args.out, segment_seconds=float(cfg.mix["segment_seconds"]),
+            opening_seconds=float(cfg.mix["opening_seconds"]),
+        )  # fmt: skip
+        for seg in segments:
+            print(f"{'主播' if seg.clip.anchor else '素材'} {seg.clip.path.name} 从 {seg.start:.1f}s 起 {seg.length:.1f}s")
+        width = int(cfg.render["output_width"])
+        montage = mixer.montage(segments, voice, out.with_name(out.stem + "-画面.mp4"), width, int(round(width * 16 / 9 / 2) * 2))
+        info = editor.render(
+            montage, out, out.with_name(out.stem + "-封面.jpg"), _read(args.script), args.title, "", args.cover, [],
+            cfg.render, editor.pick_music(cfg.render["music_dir"], args.out),
+        )  # fmt: skip
+        print(f"主播出镜占 {mixer.anchor_share(segments):.0%}", json.dumps(info, ensure_ascii=False))
+        return 0
+
     from .feishu import Feishu
     from .pipeline import Pipeline
 
@@ -103,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         print("改写", pipe.rewrite_pending(), "条")
     elif args.cmd == "edit":
         print("剪辑", pipe.edit_pending(), "条")
+    elif args.cmd == "mix":
+        print("混剪", pipe.mix_pending(), "条")
     elif args.cmd == "run":
         print(pipe.run_once())
     elif args.cmd == "watch":

@@ -1,4 +1,4 @@
-"""初始化飞书多维表格：建「门店资料」「母版」「今日任务」三页，并给每家门店自己的那一页补齐字段。
+"""初始化飞书多维表格：建「门店资料」「母版」「今日任务」「素材库」「混剪」几页，并给每家门店自己的那一页补齐字段。
 
 可以反复运行：已经存在的页面和字段不会重复创建，也不会改动你们原有的数据。
 """
@@ -7,13 +7,14 @@ from __future__ import annotations
 import logging
 import re
 
-from .config import HQ_TABLES, MASTERS_TABLE, STATUS, STORES_TABLE, TASKS_TABLE, Config
+from .config import HQ_TABLES, LIBRARY_TABLE, MASTERS_TABLE, MIX_TABLE, STATUS, STORES_TABLE, TASKS_TABLE, Config
 from .feishu import Feishu, text_of
 
-TEXT, SELECT, DATE, CHECKBOX, ATTACHMENT, LINK = 1, 3, 5, 7, 17, 18
+TEXT, NUMBER, SELECT, DATE, CHECKBOX, ATTACHMENT, LINK = 1, 2, 3, 5, 7, 17, 18
 log = logging.getLogger("fengzai")
 
 VIDEO_STATUS = ("to_rewrite", "to_generate", "editing", "done", "failed")
+CLIP_KINDS = ("主播出镜", "施工过程", "翻新前后对比", "门头环境", "细节特写", "客户反馈")
 
 
 def _select(options: list[str]) -> dict:
@@ -50,7 +51,7 @@ def store_page_fields(cfg: Config, masters_tid: str) -> list[dict]:
 
 
 def ensure_base(cfg: Config, fs: Feishu) -> dict[str, str]:
-    """确保三页总部表存在；门店资料第一次创建时，按现有页面名预填门店。"""
+    """确保总部用的几页存在；门店资料第一次创建时，按现有页面名预填门店。"""
     tables = fs.list_tables()
     F = cfg.fields
     if MASTERS_TABLE not in tables:
@@ -85,6 +86,42 @@ def ensure_base(cfg: Config, fs: Feishu) -> dict[str, str]:
             ],
         )
         log.info("已创建「%s」页", TASKS_TABLE)
+    if LIBRARY_TABLE not in tables:
+        L = F["library"]
+        tables[LIBRARY_TABLE] = fs.create_table(
+            LIBRARY_TABLE,
+            [
+                {"field_name": L["title"], "type": TEXT},
+                {"field_name": L["file"], "type": ATTACHMENT},
+                {"field_name": L["city"], "type": TEXT},
+                {"field_name": L["anchor"], "type": TEXT},
+                {"field_name": L["kind"], "type": SELECT, "property": _select(list(CLIP_KINDS))},
+                {"field_name": L["disabled"], "type": CHECKBOX},
+                {"field_name": L["used"], "type": NUMBER},
+                {"field_name": L["last_used"], "type": DATE},
+                {"field_name": L["note"], "type": TEXT},
+            ],
+        )
+        log.info("已创建「%s」页", LIBRARY_TABLE)
+    if MIX_TABLE not in tables:
+        X = F["mixes"]
+        tables[MIX_TABLE] = fs.create_table(
+            MIX_TABLE,
+            [
+                {"field_name": X["title"], "type": TEXT},
+                {"field_name": X["date"], "type": DATE},
+                _status_field(X["status"], ("to_mix", "editing", "done", "failed")),
+                {"field_name": X["store"], "type": TEXT},
+                {"field_name": X["final"], "type": ATTACHMENT},
+                {"field_name": X["cover_image"], "type": ATTACHMENT},
+                {"field_name": X["publish"], "type": TEXT},
+                {"field_name": X["clips"], "type": TEXT},
+                {"field_name": X["pushed"], "type": CHECKBOX},
+                {"field_name": X["ref"], "type": TEXT},
+                {"field_name": X["note"], "type": TEXT},
+            ],
+        )
+        log.info("已创建「%s」页", MIX_TABLE)
     if STORES_TABLE not in tables:
         S = F["stores"]
         tables[STORES_TABLE] = fs.create_table(

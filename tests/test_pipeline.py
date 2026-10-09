@@ -37,8 +37,12 @@ class FakeFeishu:
         return [{"record_id": rid, "fields": dict(f)} for rid, f in self.rows[tid].items()]
 
     def batch_create(self, tid, rows):
+        created = []
         for r in rows:
-            self.rows[tid][f"rec{next(self._ids)}"] = dict(r)
+            rid = f"rec{next(self._ids)}"
+            self.rows[tid][rid] = dict(r)
+            created.append({"record_id": rid, "fields": dict(r)})
+        return created
 
     def update_record(self, tid, rid, fields):
         self.rows[tid][rid].update(fields)
@@ -85,7 +89,7 @@ def base(tmp_path):
 
 def test_setup_keeps_existing_pages_and_adds_fields(base):
     fs, cfg = base
-    assert {"门店资料", "母版", "今日任务"} <= set(fs.tables)
+    assert {"门店资料", "母版", "今日任务", "素材库", "混剪"} <= set(fs.tables)
     assert {"状态", "成片", "发布文案", "已推送群"} <= fs.fields[fs.tables["珠海香洲店"]]
     assert fs.page("珠海香洲店") == [OLD_ROW]  # 旧数据原样保留
     assert setup_tables.setup(cfg, fs)["珠海香洲店"] == []  # 反复运行不出问题

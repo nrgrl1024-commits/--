@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
 import yaml
@@ -71,13 +71,44 @@ DEFAULT_FIELDS = {
         "date": "日期",
         "ref": "门店记录",
     },
+    # 素材库：真人主播出镜素材和通用素材，混剪从这里挑
+    "library": {
+        "title": "名称",
+        "file": "素材",
+        "city": "城市",
+        "anchor": "主播",
+        "kind": "镜头类型",
+        "disabled": "停用",
+        "used": "使用次数",
+        "last_used": "最近使用",
+        "note": "备注",
+    },
+    # 混剪：每个城市每天一行
+    "mixes": {
+        "title": "城市",
+        "date": "日期",
+        "status": "状态",
+        "store": "门店",
+        "final": "成片",
+        "cover_image": "封面图",
+        "publish": "发布文案",
+        "clips": "素材清单",
+        "pushed": "已推送群",
+        "ref": "门店记录",
+        "note": "备注",
+    },
 }
 
 # 这两页是总部用的，其余和「门店资料」里对得上的页面都当作门店页
 STORES_TABLE = "门店资料"
 MASTERS_TABLE = "母版"
 TASKS_TABLE = "今日任务"
-HQ_TABLES = (STORES_TABLE, MASTERS_TABLE, TASKS_TABLE)
+LIBRARY_TABLE = "素材库"
+MIX_TABLE = "混剪"
+HQ_TABLES = (STORES_TABLE, MASTERS_TABLE, TASKS_TABLE, LIBRARY_TABLE, MIX_TABLE)
+
+# 素材库里「城市」填这些或留空，表示所有城市都能用（不能有主播出镜）
+SHARED_CITY = ("", "通用", "全国")
 
 STATUS = {
     "pending_dist": "待分发",
@@ -86,6 +117,7 @@ STATUS = {
     "to_rewrite": "待改写",
     "to_generate": "待生成",
     "editing": "剪辑中",
+    "to_mix": "待混剪",
     "done": "已完成",
     "failed": "失败",
 }
@@ -109,6 +141,13 @@ DEFAULT_RENDER = {
 }
 
 
+DEFAULT_MIX = {
+    "enabled": True,
+    "segment_seconds": 3.0,  # 每个镜头大约几秒
+    "opening_seconds": 3.0,  # 开头主播出镜几秒
+}
+
+
 @dataclass
 class Config:
     feishu: dict
@@ -116,6 +155,7 @@ class Config:
     render: dict
     fields: dict
     work_dir: Path
+    mix: dict = dc_field(default_factory=lambda: dict(DEFAULT_MIX))
 
     def field(self, table: str, key: str) -> str:
         return self.fields[table][key]
@@ -170,4 +210,5 @@ def load_config(path: str | Path | None = None) -> Config:
         render=render,
         fields=fields,
         work_dir=work_dir,
+        mix={**DEFAULT_MIX, **(raw.get("mix") or {})},
     )

@@ -32,6 +32,11 @@ render:
   title_color: "#FFE100"
   highlight_color: "#FFE100"
 
+mix:
+  enabled: true                # 每个城市每天额外出一条混剪；不需要时改成 false
+  segment_seconds: 3.0         # 每个镜头大约几秒
+  opening_seconds: 3.0         # 开头主播出镜几秒
+
 # 如果你们表格里的字段名跟默认的不一样，可以在这里改，例如：
 # fields:
 #   videos:

@@ -4,6 +4,8 @@
 2. 改写：按门店生成定向文案、封面、即梦提示词、发布文案，并汇总到「今日任务」页
 3. （人工）同事在「今日任务」页逐行复制提示词到即梦，生成后把视频拖回同一行
 4. 剪辑：自动加标题、字幕、音乐、封面 → 回写门店页 → 推送到门店企业微信群
+5. 混剪（额外一条）：每个城市每天一条，画面用「素材库」里本城市真人主播 + 通用素材，
+   声音用当天即梦视频里已经配好的 AI 口播，记录在「混剪」页
 
 每家门店是多维表格里单独的一页，视频都记录在自己那一页里，方便长期翻看。
 """
@@ -11,12 +13,16 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import random
 import re
 import traceback
 from dataclasses import dataclass
+from pathlib import Path
 
-from . import analyze, editor, wecom
-from .config import HQ_TABLES, MASTERS_TABLE, STATUS, STORES_TABLE, TASKS_TABLE, Config
+from . import analyze, editor, mixer, wecom
+from .config import (
+    HQ_TABLES, LIBRARY_TABLE, MASTERS_TABLE, MIX_TABLE, SHARED_CITY, STATUS, STORES_TABLE, TASKS_TABLE, Config,
+)  # fmt: skip
 from .feishu import Feishu, attachments, link_ids, text_of
 from .rewrite import Source, Store, rewrite
 from .setup_tables import ensure_base, ensure_store_page, store_page_name
@@ -33,6 +39,13 @@ class StorePage:
 
 def _today_ms() -> int:
     return int(dt.datetime.combine(dt.date.today(), dt.time()).timestamp() * 1000)
+
+
+def _is_today(value) -> bool:
+    try:
+        return dt.date.fromtimestamp(float(value) / 1000) == dt.date.today()
+    except (TypeError, ValueError, OSError):
+        return False
 
 
 class Pipeline:
@@ -306,6 +319,195 @@ class Pipeline:
                 self._set(p.table_id, rid, {V("note"): f"推送企微群失败：{e}"[:500]})
         return True
 
+    # ---------- 4. 混剪：每个城市每天额外一条 ----------
+    def mix_pending(self) -> int:
+        tables, pages = self.load()
+        mix_t = tables[MIX_TABLE]
+        X = lambda k: self.f("mixes", k)  # noqa: E731
+        today_rows: dict[str, tuple[str, dict]] = {}
+        for rec in self.fs.list_records(mix_t):
+            fields = rec.get("fields", {})
+            if _is_today(fields.get(X("date"))):
+                today_rows[text_of(fields.get(X("title"))).strip()] = (rec["record_id"], fields)
+
+        cities: dict[str, list[StorePage]] = {}
+        for p in pages:
+            if p.store.city:
+                cities.setdefault(p.store.city, []).append(p)
+
+        library = None
+        count = 0
+        for city, city_pages in cities.items():
+            existing = today_rows.get(city)
+            if existing and text_of(existing[1].get(X("status"))) != STATUS["to_mix"]:
+                continue  # 今天已经做过（或正在做 / 失败了等人工处理）
+            source = self._mix_source(city_pages)
+            if not source:
+                continue  # 这个城市今天的即梦视频还没剪好，下一轮再看
+            p, src_rid, src_fields = source
+            row = {
+                X("title"): city,
+                X("date"): _today_ms(),
+                X("store"): p.store.name,
+                X("ref"): f"{p.table_id}/{src_rid}",
+                X("status"): STATUS["editing"],
+                X("note"): "",
+            }
+            if existing:
+                rid = existing[0]
+                self._set(mix_t, rid, row)
+            else:
+                rid = self.fs.batch_create(mix_t, [row])[0]["record_id"]
+            if library is None:
+                library = self.fs.list_records(tables[LIBRARY_TABLE])
+            if self._mix_one(tables[LIBRARY_TABLE], library, mix_t, rid, p, src_rid, src_fields):
+                count += 1
+        return count
+
+    def _mix_source(self, city_pages: list[StorePage]) -> tuple[StorePage, str, dict] | None:
+        """这个城市今天已剪好的门店视频；一个城市有几家门店时按日期轮换。"""
+        V = lambda k: self.f("videos", k)  # noqa: E731
+        shift = dt.date.today().toordinal() % len(city_pages)
+        for p in city_pages[shift:] + city_pages[:shift]:
+            for rec in self.fs.list_records(p.table_id):
+                fields = rec.get("fields", {})
+                if (
+                    text_of(fields.get(V("status"))) == STATUS["done"]
+                    and _is_today(fields.get(V("date")))
+                    and attachments(fields.get(V("generated")))
+                ):
+                    return p, rec["record_id"], fields
+        return None
+
+    def _library_clips(self, library: list[dict], city: str) -> tuple[list, list]:
+        """返回 (本城市主播出镜素材, 可用的其他素材)，每项是 (记录 ID, 附件, 使用次数)。"""
+        L = lambda k: self.f("library", k)  # noqa: E731
+        anchors, brolls = [], []
+        for rec in library:
+            fields = rec.get("fields", {})
+            if fields.get(L("disabled")):
+                continue
+            tag = text_of(fields.get(L("city"))).strip()
+            has_anchor = bool(text_of(fields.get(L("anchor"))).strip())
+            try:
+                used = int(float(text_of(fields.get(L("used"))) or 0))
+            except ValueError:
+                used = 0
+            for att in attachments(fields.get(L("file"))):
+                item = (rec["record_id"], att, used)
+                if has_anchor and tag == city:
+                    anchors.append(item)
+                elif not has_anchor and tag in (city, *SHARED_CITY):
+                    brolls.append(item)
+                # 其他城市的素材、没写城市的主播素材都不用
+        return anchors, brolls
+
+    def _mix_one(
+        self, lib_t: str, library: list[dict], mix_t: str, rid: str, p: StorePage, src_rid: str, src: dict
+    ) -> bool:
+        V = lambda k: self.f("videos", k)  # noqa: E731
+        X = lambda k: self.f("mixes", k)  # noqa: E731
+        store, city = p.store, p.store.city
+        stamp = dt.date.today().strftime("%m%d")
+        work = self.cfg.work_dir / f"mix-{rid}"
+        try:
+            anchors, brolls = self._library_clips(library, city)
+            if not anchors:
+                raise RuntimeError(
+                    f"素材库里没有「{city}」的主播出镜素材：请上传，并把「城市」填 {city}、「主播」填主播名字"
+                )
+            voice = self.fs.download(attachments(src.get(V("generated")))[-1], work / "voice.mp4")
+            duration = editor.probe(voice).duration
+            seg = float(self.cfg.mix["segment_seconds"])
+            need = int(duration / seg) + 2
+            rng = random.Random(f"{city}{stamp}")
+
+            def pick(items):  # 用得少的优先，同样次数的每天随机换顺序
+                rng.shuffle(items)
+                return sorted(items, key=lambda x: x[2])[:need]
+
+            cache = self.cfg.work_dir / "library"
+            local = []
+            for anchor, items in ((True, pick(anchors)), (False, pick(brolls))):
+                for key, att, _ in items:
+                    path = cache / f"{att['file_token']}{Path(att.get('name') or '').suffix or '.mp4'}"
+                    if not path.exists():
+                        self.fs.download(att, path)
+                    local.append((key, path, anchor))
+            clips = mixer.load_clips(local)
+            segments = mixer.plan(
+                duration,
+                [c for c in clips if c.anchor],
+                [c for c in clips if not c.anchor],
+                seed=f"{city}{stamp}",
+                segment_seconds=seg,
+                opening_seconds=float(self.cfg.mix["opening_seconds"]),
+            )
+            width = int(self.cfg.render["output_width"])
+            montage = mixer.montage(segments, voice, work / "montage.mp4", width, int(round(width * 16 / 9 / 2) * 2))
+
+            out_video = work / f"{city}混剪-{stamp}.mp4"
+            out_cover = work / f"{city}混剪-{stamp}-封面.jpg"
+            cover_title = text_of(src.get(V("cover")))
+            subtitle = text_of(src.get(V("subtitle"))) or _strip_city(cover_title, city)
+            music = editor.pick_music(self.cfg.render["music_dir"], f"mix-{rid}", text_of(src.get(V("bgm"))))
+            editor.render(
+                montage, out_video, out_cover, text_of(src.get(V("rewritten"))) or text_of(src.get(V("script"))),
+                store.title(), subtitle, cover_title, _split_words(text_of(src.get(V("highlights")))),
+                self.cfg.render, music,
+            )  # fmt: skip
+            video_token = self.fs.upload(out_video, "bitable_file")
+            cover_token = self.fs.upload(out_cover, "bitable_image")
+            n_anchor = sum(1 for s in segments if s.clip.anchor)
+            summary = f"主播出镜 {n_anchor} 段（占 {mixer.anchor_share(segments):.0%}），其他素材 {len(segments) - n_anchor} 段"
+            self._set(
+                mix_t,
+                rid,
+                {
+                    X("final"): [{"file_token": video_token}],
+                    X("cover_image"): [{"file_token": cover_token}],
+                    X("publish"): text_of(src.get(V("publish"))),
+                    X("clips"): summary,
+                    X("status"): STATUS["done"],
+                },
+            )
+            self._count_usage(lib_t, library, segments)
+            log.info("已出混剪：%s（%s）", city, summary)
+        except Exception as e:
+            log.error("混剪失败 %s：%s", city, traceback.format_exc())
+            self._set(mix_t, rid, {X("status"): STATUS["failed"], X("note"): f"混剪失败：{e}"[:500]})
+            return False
+
+        if store.webhook:
+            try:
+                upload = editor.shrink_for_upload(out_video, float(self.cfg.render["wecom_max_mb"]))
+                wecom.push_video(store.webhook, f"{store.name}·混剪", upload, out_cover, text_of(src.get(V("publish"))))
+                self._set(mix_t, rid, {X("pushed"): True})
+            except Exception as e:
+                log.exception("混剪推送失败 %s", store.name)
+                self._set(mix_t, rid, {X("note"): f"推送企微群失败：{e}"[:500]})
+        return True
+
+    def _count_usage(self, lib_t: str, library: list[dict], segments: list) -> None:
+        L = lambda k: self.f("library", k)  # noqa: E731
+        used: dict[str, int] = {}
+        for s in segments:
+            used[s.clip.key] = used.get(s.clip.key, 0) + 1
+        for rec in library:
+            key = rec["record_id"]
+            if key not in used:
+                continue
+            fields = rec.setdefault("fields", {})
+            try:
+                total = int(float(text_of(fields.get(L("used"))) or 0)) + used[key]
+            except ValueError:
+                total = used[key]
+            fields[L("used")] = total  # 同一轮里后面的城市也能看到最新次数
+            try:
+                self._set(lib_t, key, {L("used"): total, L("last_used"): _today_ms()})
+            except Exception:
+                log.exception("更新素材使用次数失败 %s", key)
+
     def _set(self, table_id: str, rid: str, fields: dict) -> None:
         self.fs.update_record(table_id, rid, fields)
 
@@ -316,7 +518,10 @@ class Pipeline:
             log.exception("回写失败状态也失败了 %s", rid)
 
     def run_once(self) -> dict:
-        return {"分发": self.distribute(), "改写": self.rewrite_pending(), "剪辑": self.edit_pending()}
+        result = {"分发": self.distribute(), "改写": self.rewrite_pending(), "剪辑": self.edit_pending()}
+        if self.cfg.mix.get("enabled", True):
+            result["混剪"] = self.mix_pending()
+        return result
 
 
 def _first(items: list[str]) -> str:
