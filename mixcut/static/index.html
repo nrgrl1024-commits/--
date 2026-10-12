@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>门店混剪</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>门店混剪</h1>
+  <nav>
+    <button class="tab active" data-tab="tasks">今日任务</button>
+    <button class="tab" data-tab="stores">门店资料</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ===== 门店资料 ===== -->
+  <section id="tab-stores" hidden>
+    <div class="card">
+      <h2>门店资料</h2>
+      <p class="hint">所有人打开网址看到的是同一份。门店名要和素材文件夹里的门店文件夹名一致。</p>
+      <div class="table-wrap">
+        <table class="stores">
+          <thead><tr><th>门店名</th><th>城市</th><th>主播昵称</th><th>性别</th><th>方言</th><th>主播声音</th><th></th></tr></thead>
+          <tbody id="storeRows"></tbody>
+        </table>
+      </div>
+      <div class="row"><button id="addStore">+ 加门店</button><span id="saveState" class="hint"></span></div>
+    </div>
+    <div class="card">
+      <h2>怎么复刻主播的声音</h2>
+      <ol class="hint">
+        <li>让主播用手机录一段 <b>10–20 秒</b> 的方言，安静的地方，不要背景音乐，随便说几句平时介绍翻新的话</li>
+        <li>在上面这家门店点「上传声音」，选这段录音（m4a、mp3、wav 都可以）</li>
+        <li>状态变成「可用」后，点「试听」听一下像不像</li>
+      </ol>
+      <p class="hint">按国家规定，用 AI 合成的声音做的视频要标注"内容由AI生成"，导出时会自动加上。主播本人要签声音授权。</p>
+    </div>
+  </section>
+
+  <!-- ===== 今日任务 ===== -->
+  <section id="tab-tasks">
+    <div class="card">
+      <div class="row">
+        <label class="btn primary">① 导入文案 Excel<input id="excel" type="file" accept=".xlsx" hidden></label>
+        <label class="btn primary">② 选择素材文件夹<input id="folder" type="file" webkitdirectory multiple hidden></label>
+        <span id="materialInfo" class="hint"></span>
+      </div>
+      <details class="hint">
+        <summary>素材文件夹怎么整理</summary>
+        <pre class="tree">素材/
+├── 通用/              所有门店都能用的画面；可以再分小文件夹，如 通用/卫生间/、通用/厨房/
+├── 音乐/              背景音乐（mp3）
+├── 合肥大铺头店/
+│   ├── 人物/          主播出镜：真人拍的，或即梦生成的（原声不用，只要画面）
+│   └── 空镜/          本店拍的门头、店内、施工现场
+└── 成都温江店/
+    └── 人物/</pre>
+        文件夹名、文件名里的词会当作标签：文案里提到"卫生间"，就优先用 通用/卫生间/ 里的镜头。
+      </details>
+      <div id="voiceWarn"></div>
+    </div>
+
+    <div id="projects"></div>
+
+    <div class="card" id="exportCard" hidden>
+      <h2>导出</h2>
+      <div class="row">
+        <button id="exportAll" class="primary">导出全部已确认的视频</button>
+        <button id="downloadAll" disabled>全部下载</button>
+        <span id="exportState" class="hint"></span>
+      </div>
+      <p class="hint">按视频实际时长录制，30 秒的视频约 30 秒导出。<b>导出时不要切到别的窗口</b>，否则会变慢或卡住。</p>
+      <div id="formatWarn"></div>
+      <div class="results" id="results"></div>
+    </div>
+  </section>
+</main>
+
+<div id="player" hidden>
+  <canvas id="stage" width="1080" height="1920"></canvas>
+  <div class="row"><button id="stopPlay">停止</button><span id="playState" class="hint"></span></div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

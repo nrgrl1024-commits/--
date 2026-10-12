@@ -9,3 +9,5 @@ assets/fonts/*
 !assets/fonts/README.md
 assets/music/*
 !assets/music/README.md
+mixcut/data/
+mixcut/.venv/
